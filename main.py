@@ -220,29 +220,19 @@ async def show_force_join_menu(update: Update, context: ContextTypes.DEFAULT_TYP
     for i in range(0, len(missing_channels), 2):
         row = []
         ch1 = missing_channels[i]
-        if ch1.startswith('@'):
-            url1 = f"https://t.me/{ch1[1:]}"
-            display1 = f"💎 Join {ch1}"
-        else:
-            url1 = ch1
-            display1 = "💎 Join Group"
-        row.append(InlineKeyboardButton(display1, url=url1))
+        url1 = f"https://t.me/{ch1[1:]}" if ch1.startswith('@') else ch1
+        row.append(InlineKeyboardButton("💎 Join", url=url1))
 
         if i + 1 < len(missing_channels):
             ch2 = missing_channels[i + 1]
-            if ch2.startswith('@'):
-                url2 = f"https://t.me/{ch2[1:]}"
-                display2 = f"💎 Join {ch2}"
-            else:
-                url2 = ch2
-                display2 = "💎 Join Group"
-            row.append(InlineKeyboardButton(display2, url=url2))
+            url2 = f"https://t.me/{ch2[1:]}" if ch2.startswith('@') else ch2
+            row.append(InlineKeyboardButton("💎 Join", url=url2))
 
         keyboard.append(row)
 
     keyboard.append([InlineKeyboardButton("✅ VERIFY", callback_data='verify_force_join')])
 
-    text = "🚫 *Access Restricted*\n\nTo use this bot, you must join the following channels:\n\n" + "\n".join([f"• {ch}" for ch in missing_channels]) + "\n\nAfter joining, click the VERIFY button."
+    text = "🚫 *Access Restricted*\n\nTo use this bot, you must join our channels first.\n\n👇 *Tap the buttons below to join, then click VERIFY to continue.*"
     
     if update.callback_query:
         await update.callback_query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
