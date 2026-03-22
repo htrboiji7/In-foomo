@@ -380,7 +380,16 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     referral_count = user.get('referral_count', 0)
     if lifetime:
         credits = "Unlimited"
-    text = f"📊 *Your Stats*\n\nCredits: `{credits}`\nTotal Searches: `{searches}`\nReferrals: `{referral_count}`"
+    
+    text = (
+        "👤 *User Profile & Statistics* 👤\n\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        f"💰 *Available Credits:* `{credits}`\n"
+        f"🔍 *Total Searches:* `{searches}`\n"
+        f"👥 *Total Referrals:* `{referral_count}`\n"
+        "━━━━━━━━━━━━━━━━━━\n\n"
+        "💡 *Tip:* Use your referral link to get more free credits!"
+    )
     await update.message.reply_text(text, parse_mode='Markdown')
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -407,15 +416,15 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == 'buy':
         await show_buy_menu(query, user_id)
     elif data == 'stats':
-        await show_stats(query, user_id)
+        await show_stats_inline(query, user_id)
     elif data == 'referral':
         await show_referral(query, user_id)
     elif data.startswith('protect_'):
         plan = data.split('_')[1]
-        await process_protect_plan(query, user_id, plan)
+        await process_protect_plan(query, user_id, plan, context)
     elif data.startswith('buy_'):
         plan_key = data.split('_')[1]
-        await process_buy_plan(query, user_id, plan_key)
+        await process_buy_plan(query, user_id, plan_key, context)
     elif data == 'start':
         await show_main_menu(update, context)
 
@@ -437,7 +446,7 @@ async def show_protect_menu(query, user_id):
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-async def process_protect_plan(query, user_id, plan):
+async def process_protect_plan(query, user_id, plan, context):
     plans = {
         '30': (50, 30),
         '180': (250, 180),
@@ -449,7 +458,6 @@ async def process_protect_plan(query, user_id, plan):
     if not user.get("lifetime") and credits < cost:
         await query.edit_message_text(f"⚠️ You need {cost} credits for this plan. Please buy credits.")
         return
-    context = query.message._context
     context.user_data['protect_plan'] = {'cost': cost, 'days': days}
     await query.edit_message_text("🔒 Send the 10-digit number you want to protect (without country code):")
     context.user_data['action'] = 'protect'
@@ -470,7 +478,7 @@ async def show_buy_menu(query, user_id):
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-async def process_buy_plan(query, user_id, plan_key):
+async def process_buy_plan(query, user_id, plan_key, context):
     plans = {
         '100': (50, 100),
         '1000': (250, 1000),
@@ -481,7 +489,6 @@ async def process_buy_plan(query, user_id, plan_key):
     payee_name = "NumberInfoBot"
     note = f"Credits: {credits}" if credits else "Lifetime Access"
     qr_img, upi_url = generate_upi_qr(UPI_ID, payee_name, amount, note)
-    context = query.message._context
     context.user_data['pending_payment'] = {
         'amount': amount,
         'credits': credits,
@@ -501,7 +508,7 @@ async def process_buy_plan(query, user_id, plan_key):
     keyboard = [[InlineKeyboardButton("Pay via UPI", url=upi_url)]]
     await query.message.reply_text("Click the button to pay:", reply_markup=InlineKeyboardMarkup(keyboard))
 
-async def show_stats(query, user_id):
+async def show_stats_inline(query, user_id):
     user = users.find_one({"user_id": user_id})
     credits = user.get('credits', 0)
     searches = user.get('total_searches', 0)
@@ -509,7 +516,16 @@ async def show_stats(query, user_id):
     referral_count = user.get('referral_count', 0)
     if lifetime:
         credits = "Unlimited"
-    text = f"📊 *Your Stats*\n\nCredits: `{credits}`\nTotal Searches: `{searches}`\nReferrals: `{referral_count}`"
+    
+    text = (
+        "👤 *User Profile & Statistics* 👤\n\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        f"💰 *Available Credits:* `{credits}`\n"
+        f"🔍 *Total Searches:* `{searches}`\n"
+        f"👥 *Total Referrals:* `{referral_count}`\n"
+        "━━━━━━━━━━━━━━━━━━\n\n"
+        "💡 *Tip:* Use your referral link to get more free credits!"
+    )
     await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup([[
         InlineKeyboardButton("🔙 Back", callback_data='start')
     ]]))
@@ -806,8 +822,13 @@ async def send_results(app: Application):
 
 async def worker():
     client = TelegramClient(StringSession(USER_SESSION_STRING), API_ID, API_HASH)
-    await client.start()
-    target = await client.get_entity(TARGET_BOT)
+    try:
+        await client.start()
+        target = await client.get_entity(TARGET_BOT)
+    except Exception as e:
+        logging.error(f"Telethon Worker Error: {e}")
+        return
+    
     reply_queue = asyncio.Queue()
 
     @client.on(events.NewMessage(from_users=target))
@@ -841,7 +862,7 @@ async def worker():
             req_id = req['_id']
             number = req['phone_number']
             mark_request_processing(req_id)
-            await client.send_message(target, number)
+            await client.send_message(target, f"/num {number}")
             try:
                 reply = await asyncio.wait_for(reply_queue.get(), timeout=30)
                 if reply.document and reply.document.mime_type == 'text/plain':
