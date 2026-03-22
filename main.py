@@ -831,6 +831,7 @@ def format_output(raw_text, target_number):
     results_list = []
     if start_idx != -1 and end_idx != -1:
         json_str = raw_text[start_idx:end_idx+1]
+        json_str = re.sub(r',\s*([\]}])', r'\1', json_str)
         try:
             data = json.loads(json_str)
             if "results" in data:
@@ -839,19 +840,20 @@ def format_output(raw_text, target_number):
                 results_list = data["result"]["results"]
             elif "result" in data and isinstance(data["result"], list):
                 results_list = data["result"]
-        except:
+        except Exception as e:
+            logging.error(f"JSON Parse Error: {e}")
             pass
             
     final_lines = []
     
-    if "⚠️" in raw_text:
+    if "⚠️" in raw_text or "Shutdown" in raw_text or "unavailable" in raw_text.lower():
         final_lines.append("❌ <b>Search Failed</b>\n")
-        final_lines.append(html.escape(raw_text))
+        final_lines.append("Server is currently busy or unavailable.")
     elif results_list:
         record_count = len(results_list)
         final_lines.append("✅ <b>Search Completed Successfully</b>\n")
         final_lines.append("🔎 <b>Mobile Number Lookup Report</b>")
-        final_lines.append(f"📱 <b>Target Number:</b> <code>{target_number}</code>")
+        final_lines.append(f"📱 <b>Target Number:</b> <a href='tel:+91{target_number}'>{target_number}</a>")
         final_lines.append(f"📊 <b>Records Found:</b> {record_count}\n")
         
         for idx, res in enumerate(results_list, 1):
@@ -879,8 +881,8 @@ def format_output(raw_text, target_number):
         cleaned = re.sub(r'["{}\[\]]', '', raw_text)
         lines = cleaned.split('\n')
         
-        parsed_any = False
-        temp_lines = []
+        records = []
+        current_record = []
         for line in lines:
             line = line.strip()
             if not line or line == ',': continue
@@ -891,19 +893,29 @@ def format_output(raw_text, target_number):
                 key = key.strip().lower()
                 val = val.strip()
                 if key in mapping and val:
-                    temp_lines.append(f"{mapping[key]} {html.escape(val)}")
-                    parsed_any = True
+                    if key == 'name' and any('Name:' in item for item in current_record):
+                        records.append(current_record)
+                        current_record = []
+                    current_record.append(f"{mapping[key]} {html.escape(val)}")
         
-        if parsed_any:
+        if current_record:
+            records.append(current_record)
+            
+        if records:
+            record_count = len(records)
             final_lines.append("✅ <b>Search Completed Successfully</b>\n")
             final_lines.append("🔎 <b>Mobile Number Lookup Report</b>")
-            final_lines.append(f"📱 <b>Target Number:</b> <code>{target_number}</code>")
-            final_lines.append(f"📊 <b>Records Found:</b> 1\n")
-            final_lines.append("📄 <b>Record #1</b>")
-            final_lines.extend(temp_lines)
+            final_lines.append(f"📱 <b>Target Number:</b> <a href='tel:+91{target_number}'>{target_number}</a>")
+            final_lines.append(f"📊 <b>Records Found:</b> {record_count}\n")
+            
+            for idx, rec in enumerate(records, 1):
+                final_lines.append(f"📄 <b>Record #{idx}</b>")
+                final_lines.extend(rec)
+                if idx < record_count:
+                    final_lines.append("\n────────────────────\n")
         else:
             final_lines.append("❌ <b>Search Status</b>\n")
-            final_lines.append(html.escape(raw_text))
+            final_lines.append("No records found or invalid data received.")
 
     final_lines.append("\n━━━━━━━━━━━━━━━━━━")
     final_lines.append("📢 <b>Credits:</b>")
@@ -983,7 +995,7 @@ async def worker():
             
             try:
                 final_text = ""
-                end_time = asyncio.get_event_loop().time() + 45.0
+                end_time = asyncio.get_event_loop().time() + 40.0
                 while True:
                     time_left = end_time - asyncio.get_event_loop().time()
                     if time_left <= 0:
@@ -1010,7 +1022,7 @@ async def worker():
                 mark_request_done(req_id, cleaned)
                 
             except Exception as e:
-                mark_request_failed(req_id, str(e))
+                mark_request_failed(req_id, "Timeout: No response from internal server")
         await asyncio.sleep(2)
 
 class HealthHandler(BaseHTTPRequestHandler):
