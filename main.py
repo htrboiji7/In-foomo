@@ -824,7 +824,7 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(text, parse_mode='Markdown')
 
-def format_output(raw_text):
+def format_output(raw_text, target_number):
     start_idx = raw_text.find('{')
     end_idx = raw_text.rfind('}')
     
@@ -844,10 +844,18 @@ def format_output(raw_text):
             
     final_lines = []
     
-    if results_list:
+    if "⚠️" in raw_text:
+        final_lines.append("❌ <b>Search Failed</b>\n")
+        final_lines.append(html.escape(raw_text))
+    elif results_list:
+        record_count = len(results_list)
         final_lines.append("✅ <b>Search Completed Successfully</b>\n")
-        for idx, res in enumerate(results_list):
-            final_lines.append("━━━━━━━━━━━━━━━━━━")
+        final_lines.append("🔎 <b>Mobile Number Lookup Report</b>")
+        final_lines.append(f"📱 <b>Target Number:</b> <code>{target_number}</code>")
+        final_lines.append(f"📊 <b>Records Found:</b> {record_count}\n")
+        
+        for idx, res in enumerate(results_list, 1):
+            final_lines.append(f"📄 <b>Record #{idx}</b>")
             if res.get("name"): final_lines.append(f"👤 <b>Name:</b> {html.escape(str(res['name']))}")
             if res.get("fname"): final_lines.append(f"👨‍👩‍👦 <b>Father:</b> {html.escape(str(res['fname']))}")
             if res.get("address"): final_lines.append(f"🏠 <b>Address:</b> {html.escape(str(res['address']))}")
@@ -855,7 +863,9 @@ def format_output(raw_text):
             if res.get("circle"): final_lines.append(f"🌐 <b>Circle:</b> {html.escape(str(res['circle']))}")
             if res.get("email"): final_lines.append(f"📧 <b>Email:</b> {html.escape(str(res['email']))}")
             if res.get("id"): final_lines.append(f"🆔 <b>Aadhar:</b> <code>{html.escape(str(res['id']))}</code>")
-            final_lines.append("")
+            
+            if idx < record_count:
+                final_lines.append("\n────────────────────\n")
     else:
         mapping = {
             'name': '👤 <b>Name:</b>',
@@ -868,7 +878,9 @@ def format_output(raw_text):
         }
         cleaned = re.sub(r'["{}\[\]]', '', raw_text)
         lines = cleaned.split('\n')
-        final_lines.append("✅ <b>Search Completed Successfully</b>\n")
+        
+        parsed_any = False
+        temp_lines = []
         for line in lines:
             line = line.strip()
             if not line or line == ',': continue
@@ -879,12 +891,21 @@ def format_output(raw_text):
                 key = key.strip().lower()
                 val = val.strip()
                 if key in mapping and val:
-                    final_lines.append(f"{mapping[key]} {html.escape(val)}")
+                    temp_lines.append(f"{mapping[key]} {html.escape(val)}")
+                    parsed_any = True
         
-        if len(final_lines) == 1:
+        if parsed_any:
+            final_lines.append("✅ <b>Search Completed Successfully</b>\n")
+            final_lines.append("🔎 <b>Mobile Number Lookup Report</b>")
+            final_lines.append(f"📱 <b>Target Number:</b> <code>{target_number}</code>")
+            final_lines.append(f"📊 <b>Records Found:</b> 1\n")
+            final_lines.append("📄 <b>Record #1</b>")
+            final_lines.extend(temp_lines)
+        else:
+            final_lines.append("❌ <b>Search Status</b>\n")
             final_lines.append(html.escape(raw_text))
 
-    final_lines.append("━━━━━━━━━━━━━━━━━━")
+    final_lines.append("\n━━━━━━━━━━━━━━━━━━")
     final_lines.append("📢 <b>Credits:</b>")
     final_lines.append("Channel 👩🏻‍💻: @ClanCosmo007")
     final_lines.append("Credit 🛐 : @Shub_Rajput")
@@ -897,8 +918,9 @@ async def send_results(app: Application):
         for req in completed:
             user_id = req['user_id']
             response = req['response']
-            formatted = format_output(response)
-            set_cache(req['phone_number'], formatted)
+            target_num = req.get('phone_number', 'Unknown')
+            formatted = format_output(response, target_num)
+            set_cache(target_num, formatted)
             try:
                 await app.bot.send_message(chat_id=user_id, text=formatted, parse_mode='HTML')
                 mark_sent(req['_id'])
@@ -976,13 +998,13 @@ async def worker():
                         break 
                 
                 if not final_text:
-                    final_text = "⚠️ Target bot did not return valid data or timed out."
+                    final_text = "⚠️ Server is taking too long to respond. No data found for this number."
                     
                 cleaned = clean_text(final_text)
                 mark_request_done(req_id, cleaned)
                 
             except Exception as e:
-                mark_request_failed(req_id, str(e))
+                mark_request_failed(req_id, "Timeout: No response from internal server")
         await asyncio.sleep(2)
 
 class HealthHandler(BaseHTTPRequestHandler):
