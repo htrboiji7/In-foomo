@@ -983,28 +983,34 @@ async def worker():
             
             try:
                 final_text = ""
-                for _ in range(3): 
+                end_time = asyncio.get_event_loop().time() + 45.0
+                while True:
+                    time_left = end_time - asyncio.get_event_loop().time()
+                    if time_left <= 0:
+                        break
                     try:
-                        reply = await asyncio.wait_for(reply_queue.get(), timeout=12)
-                        
+                        reply = await asyncio.wait_for(reply_queue.get(), timeout=time_left)
                         if reply.document:
                             file_bytes = await client.download_media(reply, file=bytes)
                             final_text = file_bytes.decode('utf-8', errors='ignore')
-                            break 
-                        else:
-                            if reply.text:
+                            break
+                        elif reply.text:
+                            txt = reply.text.lower()
+                            if "fetching" in txt or "wait" in txt or "successfully" in txt:
+                                continue
+                            else:
                                 final_text = reply.text
                     except asyncio.TimeoutError:
-                        break 
-                
+                        break
+
                 if not final_text:
                     final_text = "⚠️ Server is taking too long to respond. No data found for this number."
-                    
+
                 cleaned = clean_text(final_text)
                 mark_request_done(req_id, cleaned)
                 
             except Exception as e:
-                mark_request_failed(req_id, "Timeout: No response from internal server")
+                mark_request_failed(req_id, str(e))
         await asyncio.sleep(2)
 
 class HealthHandler(BaseHTTPRequestHandler):
