@@ -388,11 +388,12 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "👤 *User Profile & Statistics* 👤\n\n"
         "━━━━━━━━━━━━━━━━━━\n"
+        f"🆔 *Your ID:* `{user_id}`\n"
         f"💰 *Available Credits:* `{credits}`\n"
         f"🔍 *Total Searches:* `{searches}`\n"
         f"👥 *Total Referrals:* `{referral_count}`\n"
         "━━━━━━━━━━━━━━━━━━\n\n"
-        "💡 *Tip:* Use your referral link to get more free credits!"
+        "💡 *Tip:* Admins need your ID (above) to add credits!"
     )
     await update.message.reply_text(text, parse_mode='Markdown')
 
@@ -532,11 +533,12 @@ async def show_stats_inline(query, user_id):
     text = (
         "👤 *User Profile & Statistics* 👤\n\n"
         "━━━━━━━━━━━━━━━━━━\n"
+        f"🆔 *Your ID:* `{user_id}`\n"
         f"💰 *Available Credits:* `{credits}`\n"
         f"🔍 *Total Searches:* `{searches}`\n"
         f"👥 *Total Referrals:* `{referral_count}`\n"
         "━━━━━━━━━━━━━━━━━━\n\n"
-        "💡 *Tip:* Use your referral link to get more free credits!"
+        "💡 *Tip:* Admins need your ID (above) to add credits!"
     )
     await query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup([[
         InlineKeyboardButton("🔙 Back", callback_data='start')
@@ -578,7 +580,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop('pending_payment')
         return
 
-    # THE SMART FIX: Agar action set nahi hai, par user ne 10 digit number bheja hai, toh automatically 'search' maan lo.
     if not action and re.match(r'^\d{10}$', text):
         action = 'search'
 
@@ -673,7 +674,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop('protect_plan', None)
         
     else:
-        # Agar user "Hi" ya kuch aur type kare toh ye message aayega
         await update.message.reply_text("I didn't understand that. Please use the menu buttons or directly send a 10-digit number to search.")
 
 async def add_credit(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -681,13 +681,16 @@ async def add_credit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     args = context.args
     if len(args) < 2:
-        await update.message.reply_text("Usage: /addcredit <user_id> <amount>")
+        await update.message.reply_text("Usage: /addcredit <user_id> <amount>\n(Note: User ID must be numeric, e.g. 123456789. Get it from /stats)")
         return
-    user_id = int(args[0])
-    amount = int(args[1])
-    add_credits(user_id, amount)
-    await update.message.reply_text(f"Added {amount} credits to user {user_id}.")
-    await context.bot.send_message(chat_id=user_id, text=f"🎉 {amount} credits added to your account!")
+    try:
+        user_id = int(args[0])
+        amount = int(args[1])
+        add_credits(user_id, amount)
+        await update.message.reply_text(f"Added {amount} credits to user {user_id}.")
+        await context.bot.send_message(chat_id=user_id, text=f"🎉 {amount} credits added to your account by Admin!")
+    except ValueError:
+        await update.message.reply_text("Error: User ID must be a NUMBER, not a username (@). Ask user to click /stats to get their ID.")
 
 async def remove_credit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
@@ -696,10 +699,13 @@ async def remove_credit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(args) < 2:
         await update.message.reply_text("Usage: /removecredit <user_id> <amount>")
         return
-    user_id = int(args[0])
-    amount = int(args[1])
-    deduct_credits(user_id, amount)
-    await update.message.reply_text(f"Removed {amount} credits from user {user_id}.")
+    try:
+        user_id = int(args[0])
+        amount = int(args[1])
+        deduct_credits(user_id, amount)
+        await update.message.reply_text(f"Removed {amount} credits from user {user_id}.")
+    except ValueError:
+        await update.message.reply_text("Error: User ID must be a NUMBER.")
 
 async def ban_user_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
@@ -904,19 +910,34 @@ async def worker():
             number = req['phone_number']
             mark_request_processing(req_id)
             
+            # Queue saaf karo purane messages hatane ke liye
             while not reply_queue.empty():
                 reply_queue.get_nowait()
                 
             await client.send_message(target, f"/num {number}")
+            
             try:
-                reply = await asyncio.wait_for(reply_queue.get(), timeout=30)
-                if reply.document:
-                    file_bytes = await client.download_media(reply, file=bytes)
-                    text = file_bytes.decode('utf-8', errors='ignore')
-                else:
-                    text = reply.text
-                cleaned = clean_text(text)
+                final_text = ""
+                # Wait loops lagaye hain taaki wo loading message ignore maar ke asli file ka wait kare
+                for _ in range(5): 
+                    reply = await asyncio.wait_for(reply_queue.get(), timeout=30)
+                    
+                    if reply.document:
+                        file_bytes = await client.download_media(reply, file=bytes)
+                        final_text = file_bytes.decode('utf-8', errors='ignore')
+                        break
+                    elif "fetching" in reply.text.lower() or "wait" in reply.text.lower():
+                        continue # Ignore temporary loading messages and wait for next
+                    else:
+                        final_text = reply.text
+                        break
+                
+                if not final_text:
+                    final_text = "⚠️ Target bot did not return valid data or timed out."
+                    
+                cleaned = clean_text(final_text)
                 mark_request_done(req_id, cleaned)
+                
             except asyncio.TimeoutError:
                 mark_request_failed(req_id, "Timeout: No response from target bot")
             except Exception as e:
