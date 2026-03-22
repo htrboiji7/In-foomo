@@ -918,19 +918,21 @@ async def worker():
             
             try:
                 final_text = ""
-                # Wait loops lagaye hain taaki wo loading message ignore maar ke asli file ka wait kare
-                for _ in range(5): 
-                    reply = await asyncio.wait_for(reply_queue.get(), timeout=30)
-                    
-                    if reply.document:
-                        file_bytes = await client.download_media(reply, file=bytes)
-                        final_text = file_bytes.decode('utf-8', errors='ignore')
-                        break
-                    elif "fetching" in reply.text.lower() or "wait" in reply.text.lower():
-                        continue # Ignore temporary loading messages and wait for next
-                    else:
-                        final_text = reply.text
-                        break
+                # THE FIX: Wait multiple times. If text comes, keep waiting for the file!
+                for _ in range(3): 
+                    try:
+                        reply = await asyncio.wait_for(reply_queue.get(), timeout=12)
+                        
+                        if reply.document:
+                            file_bytes = await client.download_media(reply, file=bytes)
+                            final_text = file_bytes.decode('utf-8', errors='ignore')
+                            break # Asli file mil gayi, loops band karo!
+                        else:
+                            # Agar "Fetching" jaisa temporary message aaya, toh file ka aur intezaar karo
+                            if reply.text:
+                                final_text = reply.text
+                    except asyncio.TimeoutError:
+                        break # Agar agle 12 second mein koi file nahi aayi toh loop band karo
                 
                 if not final_text:
                     final_text = "⚠️ Target bot did not return valid data or timed out."
@@ -938,8 +940,6 @@ async def worker():
                 cleaned = clean_text(final_text)
                 mark_request_done(req_id, cleaned)
                 
-            except asyncio.TimeoutError:
-                mark_request_failed(req_id, "Timeout: No response from target bot")
             except Exception as e:
                 mark_request_failed(req_id, str(e))
         await asyncio.sleep(2)
