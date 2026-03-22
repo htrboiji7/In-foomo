@@ -5,6 +5,7 @@ import re
 import threading
 from datetime import datetime, timedelta
 from io import BytesIO
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from pymongo import MongoClient
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -14,7 +15,6 @@ from telegram.ext import (
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 import qrcode
-from flask import Flask
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -818,8 +818,30 @@ async def worker():
                 mark_request_failed(req_id, str(e))
         await asyncio.sleep(2)
 
-async def main():
-    app = Application.builder().token(BOT_TOKEN).build()
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
+
+def run_http_server():
+    port = int(os.environ.get("PORT", 8000))
+    server = HTTPServer(('0.0.0.0', port), HealthHandler)
+    server.serve_forever()
+
+async def post_init(app: Application):
+    asyncio.create_task(send_results(app))
+    asyncio.create_task(worker())
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    print("Starting HTTP health server...")
+    http_thread = threading.Thread(target=run_http_server, daemon=True)
+    http_thread.start()
+    print("HTTP server started.")
+
+    app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("buy", buy_command))
@@ -833,21 +855,9 @@ async def main():
     app.add_handler(CommandHandler("users", list_users))
     app.add_handler(CommandHandler("verify", verify_payment))
     app.add_handler(CommandHandler("broadcast", broadcast))
-    app.add_handler(CommandHandler("stats", admin_stats))
+    app.add_handler(CommandHandler("adminstats", admin_stats))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    asyncio.create_task(send_results(app))
-    asyncio.create_task(worker())
 
-    flask_app = Flask('')
-    @flask_app.route('/')
-    def health():
-        return "Bot is running"
-    def run_flask():
-        flask_app.run(host='0.0.0.0', port=8000)
-    threading.Thread(target=run_flask, daemon=True).start()
-
-    await app.run_polling()
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    print("Starting bot polling...")
+    app.run_polling()
