@@ -818,8 +818,7 @@ async def worker():
                 mark_request_failed(req_id, str(e))
         await asyncio.sleep(2)
 
-def main():
-    logging.basicConfig(level=logging.INFO)
+async def main():
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
@@ -848,7 +847,7 @@ def main():
         flask_app.run(host='0.0.0.0', port=8000)
     threading.Thread(target=run_flask, daemon=True).start()
 
-    app.run_polling()
+    await app.run_polling()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
