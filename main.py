@@ -3,6 +3,8 @@ import asyncio
 import logging
 import re
 import threading
+import json
+import html
 from datetime import datetime, timedelta
 from io import BytesIO
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -598,7 +600,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         cached = get_cached(text)
         if cached:
-            await update.message.reply_text(cached)
+            await update.message.reply_text(cached, parse_mode='HTML')
             context.user_data['action'] = None
             return
             
@@ -823,33 +825,71 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, parse_mode='Markdown')
 
 def format_output(raw_text):
-    mapping = {
-        'name': '👤 Name',
-        'fname': '👨‍👩‍👦 Father',
-        'address': '🏠 Address',
-        'alt': '📞 Alt Number',
-        'circle': '🌐 Circle',
-        'email': '📧 Email',
-        'id': '🆔 Aadhar'
-    }
-    lines = raw_text.split('\n')
-    result = []
-    for line in lines:
-        if ':' in line:
-            key, val = line.split(':', 1)
-            key = key.strip().lower()
-            val = val.strip()
-            if key in mapping:
-                result.append(f"{mapping[key]}: {val}")
-            else:
-                result.append(line.strip())
-        else:
-            if line.strip():
-                result.append(line.strip())
-    result.append("\n📢 Credits:")
-    result.append("Channel 👩🏻‍💻: @ClanCosmo007")
-    result.append("Credit 🛐 : @Shub_Rajput")
-    return '\n'.join(result)
+    start_idx = raw_text.find('{')
+    end_idx = raw_text.rfind('}')
+    
+    results_list = []
+    if start_idx != -1 and end_idx != -1:
+        json_str = raw_text[start_idx:end_idx+1]
+        try:
+            data = json.loads(json_str)
+            if "results" in data:
+                results_list = data["results"]
+            elif "result" in data and isinstance(data["result"], dict) and "results" in data["result"]:
+                results_list = data["result"]["results"]
+            elif "result" in data and isinstance(data["result"], list):
+                results_list = data["result"]
+        except:
+            pass
+            
+    final_lines = []
+    
+    if results_list:
+        final_lines.append("✅ <b>Search Completed Successfully</b>\n")
+        for idx, res in enumerate(results_list):
+            final_lines.append("━━━━━━━━━━━━━━━━━━")
+            if res.get("name"): final_lines.append(f"👤 <b>Name:</b> {html.escape(str(res['name']))}")
+            if res.get("fname"): final_lines.append(f"👨‍👩‍👦 <b>Father:</b> {html.escape(str(res['fname']))}")
+            if res.get("address"): final_lines.append(f"🏠 <b>Address:</b> {html.escape(str(res['address']))}")
+            if res.get("alt"): final_lines.append(f"📞 <b>Alt Number:</b> {html.escape(str(res['alt']))}")
+            if res.get("circle"): final_lines.append(f"🌐 <b>Circle:</b> {html.escape(str(res['circle']))}")
+            if res.get("email"): final_lines.append(f"📧 <b>Email:</b> {html.escape(str(res['email']))}")
+            if res.get("id"): final_lines.append(f"🆔 <b>Aadhar:</b> <code>{html.escape(str(res['id']))}</code>")
+            final_lines.append("")
+    else:
+        mapping = {
+            'name': '👤 <b>Name:</b>',
+            'fname': '👨‍👩‍👦 <b>Father:</b>',
+            'address': '🏠 <b>Address:</b>',
+            'alt': '📞 <b>Alt Number:</b>',
+            'circle': '🌐 <b>Circle:</b>',
+            'email': '📧 <b>Email:</b>',
+            'id': '🆔 <b>Aadhar:</b>'
+        }
+        cleaned = re.sub(r'["{}\[\]]', '', raw_text)
+        lines = cleaned.split('\n')
+        final_lines.append("✅ <b>Search Completed Successfully</b>\n")
+        for line in lines:
+            line = line.strip()
+            if not line or line == ',': continue
+            if line.endswith(','): line = line[:-1]
+            
+            if ':' in line:
+                key, val = line.split(':', 1)
+                key = key.strip().lower()
+                val = val.strip()
+                if key in mapping and val:
+                    final_lines.append(f"{mapping[key]} {html.escape(val)}")
+        
+        if len(final_lines) == 1:
+            final_lines.append(html.escape(raw_text))
+
+    final_lines.append("━━━━━━━━━━━━━━━━━━")
+    final_lines.append("📢 <b>Credits:</b>")
+    final_lines.append("Channel 👩🏻‍💻: @ClanCosmo007")
+    final_lines.append("Credit 🛐 : @Shub_Rajput")
+    
+    return '\n'.join(final_lines)
 
 async def send_results(app: Application):
     while True:
@@ -860,7 +900,7 @@ async def send_results(app: Application):
             formatted = format_output(response)
             set_cache(req['phone_number'], formatted)
             try:
-                await app.bot.send_message(chat_id=user_id, text=formatted)
+                await app.bot.send_message(chat_id=user_id, text=formatted, parse_mode='HTML')
                 mark_sent(req['_id'])
             except Exception as e:
                 logging.error(f"Failed to send result to {user_id}: {e}")
@@ -890,7 +930,11 @@ async def worker():
         "Ig :- @Nomercyhac4er",
         "Credit :- @Hacker_krishna",
         "Dev :- @Hacker_krishna",
-        "êœ°á´œÊŸÊŸ á´…á´€á´›á´€ êœ°á´‡á´›á´„Êœá´‡á´… Ê™Ê É´á´‡xá´€ á´x1 :-"
+        "êœ°á´œÊŸÊŸ á´…á´€á´›á´€ êœ°á´‡á´›á´„Êœá´‡á´… Ê™Ê É´á´‡xá´€ á´x1 :-",
+        "FULL DATA FETCHED BY NEXA oX1 :-",
+        "FULL DATA FETCHED BY NEXA oX1",
+        "ꜰᴜʟʟ ᴅᴀᴛᴀ ꜰᴇᴛᴄʜᴇᴅ ʙʏ ɴᴇxᴀ ᴏx1 :-",
+        "ꜰᴜʟʟ ᴅᴀᴛᴀ ꜰᴇᴛᴄʜᴇᴅ ʙʏ ɴᴇxᴀ ᴏx1"
     ]
 
     def clean_text(text):
@@ -910,7 +954,6 @@ async def worker():
             number = req['phone_number']
             mark_request_processing(req_id)
             
-            # Queue saaf karo purane messages hatane ke liye
             while not reply_queue.empty():
                 reply_queue.get_nowait()
                 
@@ -918,7 +961,6 @@ async def worker():
             
             try:
                 final_text = ""
-                # THE FIX: Wait multiple times. If text comes, keep waiting for the file!
                 for _ in range(3): 
                     try:
                         reply = await asyncio.wait_for(reply_queue.get(), timeout=12)
@@ -926,13 +968,12 @@ async def worker():
                         if reply.document:
                             file_bytes = await client.download_media(reply, file=bytes)
                             final_text = file_bytes.decode('utf-8', errors='ignore')
-                            break # Asli file mil gayi, loops band karo!
+                            break 
                         else:
-                            # Agar "Fetching" jaisa temporary message aaya, toh file ka aur intezaar karo
                             if reply.text:
                                 final_text = reply.text
                     except asyncio.TimeoutError:
-                        break # Agar agle 12 second mein koi file nahi aayi toh loop band karo
+                        break 
                 
                 if not final_text:
                     final_text = "⚠️ Target bot did not return valid data or timed out."
