@@ -829,13 +829,15 @@ def run_http_server():
     server = HTTPServer(('0.0.0.0', port), HealthHandler)
     server.serve_forever()
 
-async def main():
+async def post_init(app: Application):
+    asyncio.create_task(send_results(app))
+    asyncio.create_task(worker())
+
+if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     http_thread = threading.Thread(target=run_http_server, daemon=True)
     http_thread.start()
-    app = Application.builder().token(BOT_TOKEN).build()
-    asyncio.create_task(send_results(app))
-    asyncio.create_task(worker())
+    app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("buy", buy_command))
@@ -852,7 +854,4 @@ async def main():
     app.add_handler(CommandHandler("adminstats", admin_stats))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    await app.run_polling()
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    app.run_polling()
