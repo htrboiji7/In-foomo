@@ -295,7 +295,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "📖 *Help Menu*\n\n"
         "🔍 *Search Number*\n"
-        "   Send a 10-digit number without country code (e.g., 9876543210) after pressing 'Search Number'.\n\n"
+        "   Send a 10-digit number without country code (e.g., 9876543210).\n\n"
         "🛡️ *Protect Number*\n"
         "   Use /protect or the button, then choose a plan, then send the number.\n\n"
         "💰 *Buy Credits*\n"
@@ -310,7 +310,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "   /buy – Buy credits\n"
         "   /protect – Protect a number\n"
         "   /stats – Your statistics\n"
-        "   /referral – Show your referral link (via button)"
+        "   /referral – Show your referral link"
     )
     await update.message.reply_text(text, parse_mode='Markdown')
 
@@ -374,6 +374,10 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_force_join_menu(update, context, missing)
         return
     user = users.find_one({"user_id": user_id})
+    if not user:
+        init_user(user_id)
+        user = users.find_one({"user_id": user_id})
+        
     credits = user.get('credits', 0)
     searches = user.get('total_searches', 0)
     lifetime = user.get('lifetime', False)
@@ -453,8 +457,12 @@ async def process_protect_plan(query, user_id, plan, context):
         'lifetime': (1000, None)
     }
     cost, days = plans[plan]
-    credits = get_user_credits(user_id)
     user = users.find_one({"user_id": user_id})
+    if not user:
+        init_user(user_id)
+        user = users.find_one({"user_id": user_id})
+        
+    credits = get_user_credits(user_id)
     if not user.get("lifetime") and credits < cost:
         await query.edit_message_text(f"⚠️ You need {cost} credits for this plan. Please buy credits.")
         return
@@ -510,6 +518,10 @@ async def process_buy_plan(query, user_id, plan_key, context):
 
 async def show_stats_inline(query, user_id):
     user = users.find_one({"user_id": user_id})
+    if not user:
+        init_user(user_id)
+        user = users.find_one({"user_id": user_id})
+        
     credits = user.get('credits', 0)
     searches = user.get('total_searches', 0)
     lifetime = user.get('lifetime', False)
@@ -532,6 +544,10 @@ async def show_stats_inline(query, user_id):
 
 async def show_referral(query, user_id):
     user = users.find_one({"user_id": user_id})
+    if not user:
+        init_user(user_id)
+        user = users.find_one({"user_id": user_id})
+        
     referral_count = user.get('referral_count', 0)
     link = generate_referral_link(user_id)
     text = (
@@ -562,6 +578,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop('pending_payment')
         return
 
+    # THE SMART FIX: Agar action set nahi hai, par user ne 10 digit number bheja hai, toh automatically 'search' maan lo.
+    if not action and re.match(r'^\d{10}$', text):
+        action = 'search'
+
     if action == 'search':
         if is_banned(user_id):
             await update.message.reply_text("You are banned from using this bot.")
@@ -577,11 +597,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         cached = get_cached(text)
         if cached:
-            await update.message.reply_text(cached, parse_mode='Markdown')
+            await update.message.reply_text(cached)
             context.user_data['action'] = None
             return
+            
+        user = users.find_one({"user_id": user_id})
+        if not user:
+            init_user(user_id)
+            user = users.find_one({"user_id": user_id})
+            
         credits = get_user_credits(user_id)
-        if credits < 10 and not users.find_one({"user_id": user_id}).get("lifetime"):
+        if credits < 10 and not user.get("lifetime"):
             await update.message.reply_text("⚠️ You need 10 credits for a search. Use /buy to purchase credits.")
             context.user_data['action'] = None
             return
@@ -589,9 +615,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("🔒 This number is protected and cannot be searched.")
             context.user_data['action'] = None
             return
-        user = users.find_one({"user_id": user_id})
+            
         if not user.get("lifetime"):
             deduct_credits(user_id, 10)
+            
         increment_searches(user_id)
         add_pending_request(user_id, text)
         await update.message.reply_text("🔍 Searching... Please wait a moment.")
@@ -621,14 +648,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         cost = plan['cost']
         days = plan['days']
-        credits = get_user_credits(user_id)
+        
         user = users.find_one({"user_id": user_id})
+        if not user:
+            init_user(user_id)
+            user = users.find_one({"user_id": user_id})
+            
+        credits = get_user_credits(user_id)
         if not user.get("lifetime") and credits < cost:
             await update.message.reply_text(f"⚠️ You need {cost} credits for this plan. Please buy credits.")
             context.user_data['action'] = None
             return
         if not user.get("lifetime"):
             deduct_credits(user_id, cost)
+            
         if days is None:
             duration_days = 365 * 100
             protect_number(text, user_id, duration_days)
@@ -638,6 +671,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"✅ Number {text} is now protected for {days} days.")
         context.user_data['action'] = None
         context.user_data.pop('protect_plan', None)
+        
+    else:
+        # Agar user "Hi" ya kuch aur type kare toh ye message aayega
+        await update.message.reply_text("I didn't understand that. Please use the menu buttons or directly send a 10-digit number to search.")
 
 async def add_credit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
@@ -797,13 +834,13 @@ def format_output(raw_text):
             key = key.strip().lower()
             val = val.strip()
             if key in mapping:
-                result.append(f"{mapping[key]}: `{val}`")
+                result.append(f"{mapping[key]}: {val}")
             else:
                 result.append(line.strip())
         else:
             if line.strip():
                 result.append(line.strip())
-    result.append("\n📢 *Credits:*")
+    result.append("\n📢 Credits:")
     result.append("Channel 👩🏻‍💻: @ClanCosmo007")
     result.append("Credit 🛐 : @Shub_Rajput")
     return '\n'.join(result)
@@ -816,8 +853,12 @@ async def send_results(app: Application):
             response = req['response']
             formatted = format_output(response)
             set_cache(req['phone_number'], formatted)
-            await app.bot.send_message(chat_id=user_id, text=formatted, parse_mode='Markdown')
-            mark_sent(req['_id'])
+            try:
+                await app.bot.send_message(chat_id=user_id, text=formatted)
+                mark_sent(req['_id'])
+            except Exception as e:
+                logging.error(f"Failed to send result to {user_id}: {e}")
+                mark_sent(req['_id'])
         await asyncio.sleep(2)
 
 async def worker():
@@ -862,12 +903,16 @@ async def worker():
             req_id = req['_id']
             number = req['phone_number']
             mark_request_processing(req_id)
+            
+            while not reply_queue.empty():
+                reply_queue.get_nowait()
+                
             await client.send_message(target, f"/num {number}")
             try:
                 reply = await asyncio.wait_for(reply_queue.get(), timeout=30)
-                if reply.document and reply.document.mime_type == 'text/plain':
+                if reply.document:
                     file_bytes = await client.download_media(reply, file=bytes)
-                    text = file_bytes.decode('utf-8')
+                    text = file_bytes.decode('utf-8', errors='ignore')
                 else:
                     text = reply.text
                 cleaned = clean_text(text)
