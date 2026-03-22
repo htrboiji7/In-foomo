@@ -202,13 +202,14 @@ def generate_upi_qr(upi_id, payee_name, amount, note):
 
 async def get_missing_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
     missing = []
-    for channel in FORCE_CHANNELS:
+    for channel_str in FORCE_CHANNELS:
+        channel_id = channel_str.split('|')[0] if '|' in channel_str else channel_str
         try:
-            chat_member = await context.bot.get_chat_member(chat_id=channel, user_id=update.effective_user.id)
+            chat_member = await context.bot.get_chat_member(chat_id=channel_id, user_id=update.effective_user.id)
             if chat_member.status not in ["member", "administrator", "creator"]:
-                missing.append(channel)
+                missing.append(channel_str)
         except:
-            missing.append(channel)
+            missing.append(channel_str)
     return missing
 
 async def show_force_join_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, missing_channels=None):
@@ -221,15 +222,11 @@ async def show_force_join_menu(update: Update, context: ContextTypes.DEFAULT_TYP
     keyboard = []
     for i in range(0, len(missing_channels), 2):
         row = []
-        ch1 = missing_channels[i]
-        url1 = f"https://t.me/{ch1[1:]}" if ch1.startswith('@') else ch1
-        row.append(InlineKeyboardButton("💎 Join", url=url1))
-
-        if i + 1 < len(missing_channels):
-            ch2 = missing_channels[i + 1]
-            url2 = f"https://t.me/{ch2[1:]}" if ch2.startswith('@') else ch2
-            row.append(InlineKeyboardButton("💎 Join", url=url2))
-
+        for ch_str in missing_channels[i:i+2]:
+            parts = ch_str.split('|')
+            ch_id = parts[0]
+            url = parts[1] if len(parts) > 1 else (f"https://t.me/{ch_id[1:]}" if ch_id.startswith('@') else ch_id)
+            row.append(InlineKeyboardButton("💎 Join", url=url))
         keyboard.append(row)
 
     keyboard.append([InlineKeyboardButton("✅ VERIFY", callback_data='verify_force_join')])
@@ -574,10 +571,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         pending = context.user_data['pending_payment']
         add_pending_payment(user_id, text, pending['amount'], pending['credits'])
         for admin_id in ADMIN_IDS:
-            await context.bot.send_message(
-                chat_id=admin_id,
-                text=f"💸 New payment pending\nUser: {user_id}\nTransaction ID: {text}\nAmount: ₹{pending['amount']}\nCredits: {pending['credits'] if pending['credits'] else 'Lifetime'}"
-            )
+            try:
+                await context.bot.send_message(
+                    chat_id=admin_id,
+                    text=f"💸 New payment pending\nUser: {user_id}\nTransaction ID: {text}\nAmount: ₹{pending['amount']}\nCredits: {pending['credits'] if pending['credits'] else 'Lifetime'}"
+                )
+            except Exception as e:
+                logging.error(f"Failed to send admin notification: {e}")
         await update.message.reply_text("✅ Payment recorded! Our admin will verify and add credits shortly. Thank you.")
         context.user_data.pop('pending_payment')
         return
