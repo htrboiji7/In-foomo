@@ -198,17 +198,87 @@ def generate_upi_qr(upi_id, payee_name, amount, note):
     bio.seek(0)
     return bio, upi_url
 
-async def is_member(update, context):
-    if not FORCE_CHANNELS:
-        return True
+async def get_missing_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    missing = []
     for channel in FORCE_CHANNELS:
         try:
             chat_member = await context.bot.get_chat_member(chat_id=channel, user_id=update.effective_user.id)
             if chat_member.status not in ["member", "administrator", "creator"]:
-                return False
+                missing.append(channel)
         except:
-            return False
-    return True
+            missing.append(channel)
+    return missing
+
+async def show_force_join_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, missing_channels=None):
+    if missing_channels is None:
+        missing_channels = await get_missing_channels(update, context)
+    if not missing_channels:
+        await show_main_menu(update, context)
+        return
+
+    keyboard = []
+    for i in range(0, len(missing_channels), 2):
+        row = []
+        ch1 = missing_channels[i]
+        if ch1.startswith('@'):
+            url1 = f"https://t.me/{ch1[1:]}"
+            display1 = f"💎 Join {ch1}"
+        else:
+            url1 = ch1
+            display1 = "💎 Join Group"
+        row.append(InlineKeyboardButton(display1, url=url1))
+
+        if i + 1 < len(missing_channels):
+            ch2 = missing_channels[i + 1]
+            if ch2.startswith('@'):
+                url2 = f"https://t.me/{ch2[1:]}"
+                display2 = f"💎 Join {ch2}"
+            else:
+                url2 = ch2
+                display2 = "💎 Join Group"
+            row.append(InlineKeyboardButton(display2, url=url2))
+
+        keyboard.append(row)
+
+    keyboard.append([InlineKeyboardButton("✅ VERIFY", callback_data='verify_force_join')])
+
+    text = "🚫 *Access Restricted*\n\nTo use this bot, you must join the following channels:\n\n" + "\n".join([f"• {ch}" for ch in missing_channels]) + "\n\nAfter joining, click the VERIFY button."
+    if hasattr(update, 'callback_query'):
+        await update.callback_query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+    else:
+        await update.message.reply_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+
+async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user = update.effective_user
+    name = user.first_name if user.first_name else "User"
+
+    if apply_daily_bonus(user_id):
+        await update.message.reply_text(f"🎁 Daily login bonus: +{BONUS_CREDITS} credits!")
+
+    keyboard = [
+        [
+            InlineKeyboardButton("🔍 Search Number", callback_data='search'),
+            InlineKeyboardButton("🛡️ Protect Number", callback_data='protect')
+        ],
+        [
+            InlineKeyboardButton("📊 My Stats", callback_data='stats'),
+            InlineKeyboardButton("🔗 Referral Program", callback_data='referral')
+        ],
+        [InlineKeyboardButton("💰 Buy Credits", callback_data='buy')]
+    ]
+
+    text = f"🌟 *Welcome, {name}!*\n\n"
+    text += "Get detailed information about any phone number.\n\n"
+    text += "🔹 10 credits per search\n"
+    text += "🔹 2 free searches (20 credits) on start\n"
+    text += "🔹 Protect your number from being searched\n\n"
+    text += "Use the buttons below or commands: /help, /buy, /protect, /stats"
+
+    if hasattr(update, 'callback_query'):
+        await update.callback_query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
+    else:
+        await update.message.reply_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -223,42 +293,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_banned(user_id):
         await update.message.reply_text("You are banned from using this bot.")
         return
-    if not await is_member(update, context):
-        keyboard = []
-        for ch in FORCE_CHANNELS:
-            if ch.startswith('@'):
-                url = f"https://t.me/{ch[1:]}"
-            else:
-                url = ch
-            keyboard.append([InlineKeyboardButton(f"Join {ch}", url=url)])
-        await update.message.reply_text(
-            "Please join all required channels/groups before using this bot.",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return
-    if apply_daily_bonus(user_id):
-        await update.message.reply_text(f"🎁 Daily login bonus: +{BONUS_CREDITS} credits!")
-    keyboard = [
-        [
-            InlineKeyboardButton("🔍 Search Number", callback_data='search'),
-            InlineKeyboardButton("🛡️ Protect Number", callback_data='protect')
-        ],
-        [
-            InlineKeyboardButton("📊 My Stats", callback_data='stats'),
-            InlineKeyboardButton("🔗 Referral Program", callback_data='referral')
-        ],
-        [InlineKeyboardButton("💰 Buy Credits", callback_data='buy')]
-    ]
-    await update.message.reply_text(
-        "🌟 *Premium Number Info Bot* 🌟\n\n"
-        "Get detailed information about any phone number.\n\n"
-        "🔹 10 credits per search\n"
-        "🔹 2 free searches (20 credits) on start\n"
-        "🔹 Protect your number from being searched\n\n"
-        "Use the buttons below or commands: /help, /buy, /protect, /stats",
-        parse_mode='Markdown',
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+
+    missing = await get_missing_channels(update, context)
+    if missing:
+        await show_force_join_menu(update, context, missing)
+    else:
+        await show_main_menu(update, context)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
@@ -288,18 +328,9 @@ async def buy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_banned(user_id):
         await update.message.reply_text("You are banned from using this bot.")
         return
-    if not await is_member(update, context):
-        keyboard = []
-        for ch in FORCE_CHANNELS:
-            if ch.startswith('@'):
-                url = f"https://t.me/{ch[1:]}"
-            else:
-                url = ch
-            keyboard.append([InlineKeyboardButton(f"Join {ch}", url=url)])
-        await update.message.reply_text(
-            "Please join all required channels/groups before using this bot.",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+    missing = await get_missing_channels(update, context)
+    if missing:
+        await show_force_join_menu(update, context, missing)
         return
     keyboard = [
         [InlineKeyboardButton("100 Credits - ₹50", callback_data='buy_100')],
@@ -321,18 +352,9 @@ async def protect_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_banned(user_id):
         await update.message.reply_text("You are banned from using this bot.")
         return
-    if not await is_member(update, context):
-        keyboard = []
-        for ch in FORCE_CHANNELS:
-            if ch.startswith('@'):
-                url = f"https://t.me/{ch[1:]}"
-            else:
-                url = ch
-            keyboard.append([InlineKeyboardButton(f"Join {ch}", url=url)])
-        await update.message.reply_text(
-            "Please join all required channels/groups before using this bot.",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+    missing = await get_missing_channels(update, context)
+    if missing:
+        await show_force_join_menu(update, context, missing)
         return
     keyboard = [
         [InlineKeyboardButton("30 Days - 50 Credits", callback_data='protect_30')],
@@ -356,6 +378,10 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_banned(user_id):
         await update.message.reply_text("You are banned from using this bot.")
         return
+    missing = await get_missing_channels(update, context)
+    if missing:
+        await show_force_join_menu(update, context, missing)
+        return
     user = users.find_one({"user_id": user_id})
     credits = user.get('credits', 0)
     searches = user.get('total_searches', 0)
@@ -371,6 +397,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     user_id = update.effective_user.id
     data = query.data
+
+    if data == 'verify_force_join':
+        missing = await get_missing_channels(update, context)
+        if missing:
+            await show_force_join_menu(update, context, missing)
+        else:
+            await show_main_menu(update, context)
+        return
 
     if data == 'search':
         await query.edit_message_text("📞 Send the phone number (with country code, e.g., +919876543210):")
@@ -522,6 +556,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("You are banned from using this bot.")
             context.user_data['action'] = None
             return
+        missing = await get_missing_channels(update, context)
+        if missing:
+            await show_force_join_menu(update, context, missing)
+            context.user_data['action'] = None
+            return
         if not re.match(r'^\+\d{10,15}$', text):
             await update.message.reply_text("Please send a valid number with country code (e.g., +919876543210).")
             return
@@ -550,6 +589,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif action == 'protect':
         if is_banned(user_id):
             await update.message.reply_text("You are banned from using this bot.")
+            context.user_data['action'] = None
+            return
+        missing = await get_missing_channels(update, context)
+        if missing:
+            await show_force_join_menu(update, context, missing)
             context.user_data['action'] = None
             return
         if not re.match(r'^\+\d{10,15}$', text):
@@ -831,7 +875,7 @@ def run_http_server():
 
 async def post_init(app: Application):
     asyncio.create_task(send_results(app))
-    # asyncio.create_task(worker())
+    asyncio.create_task(worker())
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
