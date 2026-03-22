@@ -150,6 +150,9 @@ def get_pending_payment(tx_id):
 def verify_payment(tx_id):
     payments.update_one({"transaction_id": tx_id}, {"$set": {"status": "verified"}})
 
+def reject_payment_db(tx_id):
+    payments.update_one({"transaction_id": tx_id}, {"$set": {"status": "rejected"}})
+
 def add_pending_request(user_id, phone_number):
     return requests_db.insert_one({
         "user_id": user_id,
@@ -777,6 +780,40 @@ async def verify_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Added {payment['credits']} credits to user {user_id}.")
         await context.bot.send_message(chat_id=user_id, text=f"✅ Your payment of ₹{payment['amount']} is verified! {payment['credits']} credits added.")
 
+async def reject_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ADMIN_IDS:
+        return
+    args = context.args
+    if len(args) < 2:
+        await update.message.reply_text("Usage: /reject <user_id> <transaction_id>")
+        return
+    try:
+        user_id = int(args[0])
+        tx_id = args[1]
+        payment = get_pending_payment(tx_id)
+        
+        if not payment:
+            await update.message.reply_text("Payment not found or already processed.")
+            return
+            
+        if payment['user_id'] != user_id:
+            await update.message.reply_text("User ID does not match payment record.")
+            return
+            
+        reject_payment_db(tx_id)
+        await update.message.reply_text(f"Payment {tx_id} rejected successfully.")
+        
+        try:
+            await context.bot.send_message(
+                chat_id=user_id, 
+                text=f"❌ Your payment (Transaction ID: {tx_id}) has been rejected by the admin. If you think this is a mistake, please contact support."
+            )
+        except Exception as e:
+            logging.error(f"Failed to send rejection to {user_id}: {e}")
+            
+    except ValueError:
+        await update.message.reply_text("Error: User ID must be a NUMBER.")
+
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         return
@@ -1057,6 +1094,7 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("removeuser", remove_user_cmd))
     app.add_handler(CommandHandler("users", list_users))
     app.add_handler(CommandHandler("verify", verify_payment))
+    app.add_handler(CommandHandler("reject", reject_payment))
     app.add_handler(CommandHandler("broadcast", broadcast))
     app.add_handler(CommandHandler("adminstats", admin_stats))
     app.add_handler(CallbackQueryHandler(button_handler))
