@@ -831,7 +831,7 @@ def run_http_server():
 
 async def post_init(app: Application):
     asyncio.create_task(send_results(app))
-    asyncio.create_task(worker())
+    # asyncio.create_task(worker())
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
