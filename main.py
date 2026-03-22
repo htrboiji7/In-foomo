@@ -243,7 +243,8 @@ async def show_force_join_menu(update: Update, context: ContextTypes.DEFAULT_TYP
     keyboard.append([InlineKeyboardButton("✅ VERIFY", callback_data='verify_force_join')])
 
     text = "🚫 *Access Restricted*\n\nTo use this bot, you must join the following channels:\n\n" + "\n".join([f"• {ch}" for ch in missing_channels]) + "\n\nAfter joining, click the VERIFY button."
-    if hasattr(update, 'callback_query'):
+    
+    if update.callback_query:
         await update.callback_query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
     else:
         await update.message.reply_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
@@ -275,7 +276,7 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text += "🔹 Protect your number from being searched\n\n"
     text += "Use the buttons below or commands: /help, /buy, /protect, /stats"
 
-    if hasattr(update, 'callback_query'):
+    if update.callback_query:
         await update.callback_query.edit_message_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
     else:
         await update.message.reply_text(text, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
@@ -304,7 +305,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "📖 *Help Menu*\n\n"
         "🔍 *Search Number*\n"
-        "   Send a number with country code (e.g., +919876543210) after pressing 'Search Number'.\n\n"
+        "   Send a 10-digit number without country code (e.g., 9876543210) after pressing 'Search Number'.\n\n"
         "🛡️ *Protect Number*\n"
         "   Use /protect or the button, then choose a plan, then send the number.\n\n"
         "💰 *Buy Credits*\n"
@@ -407,7 +408,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if data == 'search':
-        await query.edit_message_text("📞 Send the phone number (with country code, e.g., +919876543210):")
+        await query.edit_message_text("📞 Send the 10-digit phone number (without country code, e.g., 9876543210):")
         context.user_data['action'] = 'search'
     elif data == 'protect':
         await show_protect_menu(query, user_id)
@@ -423,6 +424,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith('buy_'):
         plan_key = data.split('_')[1]
         await process_buy_plan(query, user_id, plan_key)
+    elif data == 'start':
+        await show_main_menu(update, context)
 
 async def show_protect_menu(query, user_id):
     keyboard = [
@@ -456,7 +459,7 @@ async def process_protect_plan(query, user_id, plan):
         return
     context = query.message._context
     context.user_data['protect_plan'] = {'cost': cost, 'days': days}
-    await query.edit_message_text("🔒 Send the number you want to protect (with country code):")
+    await query.edit_message_text("🔒 Send the 10-digit number you want to protect (without country code):")
     context.user_data['action'] = 'protect'
 
 async def show_buy_menu(query, user_id):
@@ -561,8 +564,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await show_force_join_menu(update, context, missing)
             context.user_data['action'] = None
             return
-        if not re.match(r'^\+\d{10,15}$', text):
-            await update.message.reply_text("Please send a valid number with country code (e.g., +919876543210).")
+        if not re.match(r'^\d{10}$', text):
+            await update.message.reply_text("Please send a valid 10-digit phone number ✅(without +91).")
             return
         cached = get_cached(text)
         if cached:
@@ -596,8 +599,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await show_force_join_menu(update, context, missing)
             context.user_data['action'] = None
             return
-        if not re.match(r'^\+\d{10,15}$', text):
-            await update.message.reply_text("Please send a valid number with country code (e.g., +919876543210).")
+        if not re.match(r'^\d{10}$', text):
+            await update.message.reply_text("Please send a valid 10-digit phone number ✅(without +91).")
             return
         if is_number_protected(text):
             await update.message.reply_text("🔒 This number is already protected by someone else.")
