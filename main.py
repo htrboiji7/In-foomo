@@ -385,17 +385,19 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
     user_id = update.effective_user.id
     data = query.data
 
     if data == 'verify_force_join':
         missing = await get_missing_channels(update, context)
         if missing:
-            await show_force_join_menu(update, context, missing)
+            await query.answer("⚠️ Please join all channels first!", show_alert=True)
         else:
+            await query.answer("✅ Verified successfully!", show_alert=True)
             await show_main_menu(update, context)
         return
+
+    await query.answer()
 
     if data == 'search':
         await query.edit_message_text("📞 Send the 10-digit phone number (without country code, e.g., 9876543210):")
